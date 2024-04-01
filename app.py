@@ -1572,6 +1572,12 @@ def display_main_application_content():
 
                 # Remove records with "Type" equal to "DISCN"
                 merged_df = merged_df[merged_df['Type'] != 'DISCN']
+                
+                # Convert 'Patent_No' column to string
+                merged_df['Patent_No'] = merged_df['Patent_No'].astype(str)
+                
+                # Strip the trailing '.0' from 'Patent_No' column
+                merged_df['Patent_No'] = merged_df['Patent_No'].str.rstrip('.0')
 
                 # Filters
                 ingredient = st.selectbox("Select Ingredient", ['None'] + sorted(merged_df['Ingredient'].dropna().unique().tolist()))
