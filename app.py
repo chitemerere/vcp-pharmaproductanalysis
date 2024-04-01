@@ -1619,6 +1619,12 @@ def display_main_application_content():
                 # Select only the specified columns
                 merged_df = merged_df[filtered_columns]
                 
+                # Convert 'Patent_No' column to string
+                merged_df['Patent_No'] = merged_df['Patent_No'].astype(str)
+
+                # Strip the trailing '.0' from 'Patent_No' column
+                merged_df['Patent_No'] = merged_df['Patent_No'].str.rstrip('.0')
+                
                 # Check if an ingredient is selected
                 if ingredient != "None":
                     # Google Patents base URL
