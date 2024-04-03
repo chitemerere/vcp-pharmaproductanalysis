@@ -266,39 +266,43 @@ def init_columns(df):
     return df
 
 def process_data(mcaz_register, atc_index, extract_atc_levels):
-     # Ensure start_time is set at the beginning of processing
+    # Ensure start_time is set at the beginning of processing
     if 'start_time' not in st.session_state or st.session_state.start_time is None:
-        st.session_state.start_time = datetime.now(harare_timezone)  # or datetime.now(harare_timezone) if timezone is relevant
-        
-    # Ensure 'Name' in ATC index is string
+        st.session_state.start_time = datetime.now(harare_timezone)
+
+    # Ensure 'Name' in ATC index is string, and prepare for 'route' handling
     atc_index['Name'] = atc_index['Name'].astype(str)
+    # If 'route' does not exist in atc_index, create a default empty 'route'
+    if 'route' not in atc_index.columns:
+        atc_index['route'] = ''  # or some default value that makes sense in your context
+    atc_index['route'] = atc_index['route'].astype(str)
+    # Combine 'Name' and 'route' in ATC index for fuzzy matching
+    atc_index['Combined'] = atc_index['Name'] + " | " + atc_index['route']
+    name_route_to_atc_code = dict(zip(atc_index['Combined'], atc_index['ATCCode']))
 
-    name_to_atc_code = dict(zip(atc_index['Name'], atc_index['ATCCode']))
     total_rows = len(mcaz_register)
     processed_rows = st.session_state.get('processed_rows', 0)
 
-    total_rows = len(mcaz_register)
-    processed_rows = st.session_state.get('processed_rows', 0)
-
-    # Initialize progress bar and display processing message
     progress_bar = st.progress(0)
     st.subheader('Processing and mapping data...')
     st.session_state.start_time = datetime.now(harare_timezone) 
     st.write(f"Processing started at: {st.session_state.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     for index, row in mcaz_register.iloc[processed_rows:].iterrows():
-        # Processing logic (omitted for brevity)
         if not st.session_state.get('resume_processing', True):
             break  # Pause processing
         
-        match_result = process.extractOne(row['Generic Name'], atc_index['Name'], scorer=fuzz.ratio)
-        best_match_name, match_score = match_result[0], match_result[1] if match_result else (None, 0)
-        atc_code = name_to_atc_code.get(best_match_name, None)
+        # Combine 'Generic Name' and 'route' from mcaz_register for fuzzy matching
+        combined_name_route = f"{row['Generic Name']} | {row.get('route', '')}"
+        match_result = process.extractOne(combined_name_route, atc_index['Combined'], scorer=fuzz.ratio)
+        best_match_combined, match_score = match_result if match_result else (None, 0)
+        atc_code = name_route_to_atc_code.get(best_match_combined, None)
 
-        mcaz_register.at[index, 'Best Match Name'] = best_match_name
+        mcaz_register.at[index, 'Best Match Name'] = best_match_combined.split(' | ')[0] if best_match_combined else None
         mcaz_register.at[index, 'Match Score'] = match_score
         mcaz_register.at[index, 'ATCCode'] = atc_code
 
+        # Progress bar update logic remains the same
         progress = int(((index - processed_rows + 1) / (total_rows - processed_rows)) * 100)
         progress_bar.progress(progress)
         st.session_state.processed_rows = index + 1
@@ -321,58 +325,70 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
     st.session_state.fuzzy_matched_data = mcaz_register  # Save processed data for later use
     
 def process_data_fda(fda_register, atc_index, extract_atc_levels):
-     # Ensure start_time is set at the beginning of processing
+    # Ensure start_time is set at the beginning of processing
     if 'start_time' not in st.session_state or st.session_state.start_time is None:
-        st.session_state.start_time = datetime.now(harare_timezone)  # or datetime.now(harare_timezone) if timezone is relevant
+        st.session_state.start_time = datetime.now(harare_timezone)
         
-    # Ensure 'Name' in ATC index is string
+    # Prepare the ATC index
     atc_index['Name'] = atc_index['Name'].astype(str)
-
-    name_to_atc_code = dict(zip(atc_index['Name'], atc_index['ATCCode']))
+    if 'route' not in atc_index.columns:
+        atc_index['route'] = ""  # Adding a default empty 'route' if not present
+    atc_index['route'] = atc_index['route'].astype(str)
+    # Combine 'Name' and 'route' for fuzzy matching
+    atc_index['Combined'] = atc_index['Name'] + " | " + atc_index['route']
+    combined_to_atc_code = dict(zip(atc_index['Combined'], atc_index['ATCCode']))
+    
+    # Prepare the FDA register for 'route' if not present
+    if 'route' not in fda_register.columns:
+        fda_register['route'] = ""  # You might need to adjust this based on how you populate 'route'
+    fda_register['route'] = fda_register['route'].astype(str)
+    
     total_rows = len(fda_register)
     processed_rows = st.session_state.get('processed_rows', 0)
-
-    # Initialize progress bar and display processing message
+    
     progress_bar = st.progress(0)
     st.subheader('Processing and mapping data...')
     st.session_state.start_time = datetime.now(harare_timezone) 
     st.write(f"Processing started at: {st.session_state.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-#     for index, row in fda_register.iloc[processed_rows:].iterrows():
-    for index, row in st.session_state.fda_register.iterrows(): 
-        # Processing logic (omitted for brevity)
-        if not st.session_state.get('resume_processing', True):
-            break  # Pause processing
+    # Ensure necessary columns exist
+    for col in ['Best Match Name', 'Match Score', 'ATCCode']:
+        if col not in fda_register.columns:
+            fda_register[col] = None
+
+    for index, row in fda_register.iloc[processed_rows:].iterrows():
+        combined_ingredient_route = f"{row['Ingredient']} | {row.get('route', 'nan')}"
         
-        match_result = process.extractOne(row['Ingredient'], atc_index['Name'], scorer=fuzz.ratio)
-        best_match_name, match_score = match_result[0], match_result[1] if match_result else (None, 0)
-        atc_code = name_to_atc_code.get(best_match_name, None)
+        match_result = process.extractOne(combined_ingredient_route, atc_index['Combined'], scorer=fuzz.ratio)
+
+        # Handle None result from extractOne
+        if match_result is None:
+            best_match_combined, match_score = None, 0
+        else:
+            best_match_combined, match_score, _ = match_result
         
+        atc_code = combined_to_atc_code.get(best_match_combined, None) if best_match_combined else None
+        
+        best_match_name = best_match_combined.split(' | ')[0] if best_match_combined else None
         fda_register.at[index, 'Best Match Name'] = best_match_name
         fda_register.at[index, 'Match Score'] = match_score
         fda_register.at[index, 'ATCCode'] = atc_code
         
-        progress = int(((index - processed_rows + 1) / (total_rows - processed_rows)) * 100)
-        progress_bar.progress(progress)
-        st.session_state.processed_rows = index + 1
-        
-        # Update progress
         progress = int(((index - processed_rows + 1) / total_rows) * 100)
         progress_bar.progress(progress)
         st.session_state.processed_rows = index + 1
   
-    # Finalize progress and display completion message
     progress_bar.progress(100)
     st.session_state.end_time = datetime.now(harare_timezone)
-    # Safely calculate processing time
     if st.session_state.start_time is not None and st.session_state.end_time is not None:
         processing_time = st.session_state.end_time - st.session_state.start_time
         st.write(f"Processing completed at: {st.session_state.end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         st.write(f"Total processing time: {processing_time}")
     else:
         st.error("Processing time could not be calculated due to missing start or end time.")
-    st.session_state.fuzzy_matched_data = fda_register  # Save processed data for later use
     
+    st.session_state.fuzzy_matched_data = fda_register  # Save processed data for later use
+
 def check_required_columns(df, required_columns, level):
     """
     Checks if the required columns are present in the dataframe.
@@ -634,7 +650,12 @@ def perform_drugs_fda_analysis():
             file_name='processed_data_drugs@fda.csv',
             mime='text/csv',
         )
-
+        
+# Function to strip the last part of a string after a semicolon
+def get_route_from_df_route(df_route_value):
+    if pd.notnull(df_route_value) and ';' in df_route_value:
+        return df_route_value.split(';')[-1]
+    return None
 
 def display_main_application_content():
                         
@@ -778,6 +799,9 @@ def display_main_application_content():
                 mcaz_register = load_file(mcaz_register_file)
                 atc_index = load_file(atc_index_file)
                 mcaz_register = init_columns(mcaz_register)
+                
+                # Add a new column 'route' by extracting the part after the semicolon in the 'Form' column
+                mcaz_register['route'] = mcaz_register['Form'].apply(lambda x: x.split(';')[-1] if pd.notnull(x) else None)
 
                 # Required columns for MCAZ register and ATC Index file
                 required_mcaz_columns = ['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 'Applicant Name','Principal Name']
@@ -1698,8 +1722,16 @@ def display_main_application_content():
                 else:
                     st.session_state.fda_register = init_columns(st.session_state.fda_register)
                     
-                    extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
+                     # Attempt to add the 'route' column only if 'DF;Route' exists
+                    if 'DF;Route' in st.session_state.fda_register.columns:
+                        # Add the 'route' column
+                        st.session_state.fda_register['route'] = st.session_state.fda_register['DF;Route'].apply(
+                            lambda x: x.split(';')[-1] if pd.notnull(x) and ';' in x else x
+                        )
 
+
+                    extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
+                    
                     # Proceed with processing only if all required columns are present
                     if st.button("Start/Resume Processing"):
                         st.session_state.resume_processing = True
