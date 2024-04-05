@@ -269,55 +269,56 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
     # Ensure start_time is set at the beginning of processing
     if 'start_time' not in st.session_state or st.session_state.start_time is None:
         st.session_state.start_time = datetime.now(harare_timezone)
-
-    # Ensure 'Name' in ATC index is a string, and prepare for 'route' handling
+        
+    # Prepare the ATC index
     atc_index['Name'] = atc_index['Name'].astype(str)
-    # If 'route' does not exist in atc_index, create a default empty 'route'
     if 'route' not in atc_index.columns:
-        atc_index['route'] = ''  # Adding a default empty 'route' if not present
+        atc_index['route'] = ""  # Adding a default empty 'route' if not present
     atc_index['route'] = atc_index['route'].astype(str)
-    # Combine 'Name' and 'route' in ATC index for fuzzy matching
+    # Combine 'Name' and 'route' for fuzzy matching
     atc_index['Combined'] = atc_index['Name'] + " | " + atc_index['route']
-    name_route_to_atc_code = dict(zip(atc_index['Combined'], atc_index['ATCCode']))
-
-    # Ensure necessary columns exist in mcaz_register for the results
-    for column in ['Best Match Name', 'Match Score', 'ATCCode']:
-        if column not in mcaz_register.columns:
-            mcaz_register[column] = None
-
+    combined_to_atc_code = dict(zip(atc_index['Combined'], atc_index['ATCCode']))
+    
+    # Prepare the FDA register for 'route' if not present
+    if 'route' not in mcaz_register.columns:
+        mcaz_register['route'] = ""  # You might need to adjust this based on how you populate 'route'
+    mcaz_register['route'] = mcaz_register['route'].astype(str)
+    
     total_rows = len(mcaz_register)
     processed_rows = st.session_state.get('processed_rows', 0)
-
+    
     progress_bar = st.progress(0)
     st.subheader('Processing and mapping data...')
-    st.session_state.start_time = datetime.now(harare_timezone)
+    st.session_state.start_time = datetime.now(harare_timezone) 
     st.write(f"Processing started at: {st.session_state.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
+    # Ensure necessary columns exist
+    for col in ['Best Match Name', 'Match Score', 'ATCCode']:
+        if col not in mcaz_register.columns:
+            mcaz_register[col] = None
+
     for index, row in mcaz_register.iloc[processed_rows:].iterrows():
-        if not st.session_state.get('resume_processing', True):
-            break  # Pause processing
+        combined_ingredient_route = f"{row['Generic Name']} | {row.get('route', 'nan')}"
+        
+        match_result = process.extractOne(combined_ingredient_route, atc_index['Combined'], scorer=fuzz.ratio)
 
-        # Combine 'Generic Name' and 'route' from mcaz_register for fuzzy matching
-        combined_name_route = f"{row['Generic Name']} | {row.get('route', '')}"
-        match_result = process.extractOne(combined_name_route, atc_index['Combined'], scorer=fuzz.ratio)
-
-        if match_result:
-            best_match_combined, match_score, _ = match_result
-        else:
+        # Handle None result from extractOne
+        if match_result is None:
             best_match_combined, match_score = None, 0
-
-        atc_code = name_route_to_atc_code.get(best_match_combined, None)
-
-        mcaz_register.at[index, 'Best Match Name'] = best_match_combined.split(' | ')[0] if best_match_combined else None
+        else:
+            best_match_combined, match_score, _ = match_result
+        
+        atc_code = combined_to_atc_code.get(best_match_combined, None) if best_match_combined else None
+        
+        best_match_name = best_match_combined.split(' | ')[0] if best_match_combined else None
+        mcaz_register.at[index, 'Best Match Name'] = best_match_name
         mcaz_register.at[index, 'Match Score'] = match_score
         mcaz_register.at[index, 'ATCCode'] = atc_code
-
-        # Update progress
+        
         progress = int(((index - processed_rows + 1) / total_rows) * 100)
         progress_bar.progress(progress)
         st.session_state.processed_rows = index + 1
-
-    # Finalize progress and display completion message
+  
     progress_bar.progress(100)
     st.session_state.end_time = datetime.now(harare_timezone)
     if st.session_state.start_time is not None and st.session_state.end_time is not None:
@@ -326,6 +327,7 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
         st.write(f"Total processing time: {processing_time}")
     else:
         st.error("Processing time could not be calculated due to missing start or end time.")
+    
     st.session_state.fuzzy_matched_data = mcaz_register  # Save processed data for later use
 
 def process_data_fda(fda_register, atc_index, extract_atc_levels):
