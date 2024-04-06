@@ -841,25 +841,30 @@ def display_main_application_content():
                   # Perform further processing on the mcaz_register DataFrame
                 # Make sure to use the DataFrame from session state
                 mcaz_register = st.session_state.fuzzy_matched_data
-            
-                # Check if the DataFrame has the required columns before accessing them
-                required_columns = ['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 
-                                    'Principal Name', 'Best Match Name', 'Match Score', 'ATCCode']
-                if all(col in mcaz_register.columns for col in required_columns):
-                    mcaz_register = mcaz_register[required_columns]
-                    # ... [Any further operations on mcaz_register]
-                else:
-                    st.error("Missing required columns in the dataset.")
-            
-            # Download file
-            csv = convert_df_to_csv(mcaz_register)
-            if csv is not None:
-                # Proceed with operations that use 'csv'
-                st.download_button(label="Download MCAZ Register as CSV", data=csv, file_name='mcaz_register_with_atc_codes.csv', mime='text/csv', key='download_mcaz_withcodes')
-
+                
+                csv_data = convert_df_to_csv(st.session_state.fuzzy_matched_data)
+                st.download_button(label="Download MCAZ Register as CSV", data=csv_data, file_name='MCAZ_register_with_atc_codes.csv', mime='text/csv')
             else:
-                # Handle the case where 'csv' is None, e.g., display a message or take alternative action
-                print("No data available to convert to CSV")
+                st.write("No processed data available for download or processing not yet started.")
+            
+#                 # Check if the DataFrame has the required columns before accessing them
+#                 required_columns = ['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 
+#                                     'Principal Name', 'Best Match Name', 'Match Score', 'ATCCode']
+#                 if all(col in mcaz_register.columns for col in required_columns):
+#                     mcaz_register = mcaz_register[required_columns]
+#                     # ... [Any further operations on mcaz_register]
+#                 else:
+#                     st.error("Missing required columns in the dataset.")
+            
+#             # Download file
+#             csv = convert_df_to_csv(mcaz_register)
+#             if csv is not None:
+#                 # Proceed with operations that use 'csv'
+#                 st.download_button(label="Download MCAZ Register as CSV", data=csv, file_name='mcaz_register_with_atc_codes.csv', mime='text/csv', key='download_mcaz_withcodes')
+
+#             else:
+#                 # Handle the case where 'csv' is None, e.g., display a message or take alternative action
+#                 print("No data available to convert to CSV")
                 
             if mcaz_register is not None:
                 try:
