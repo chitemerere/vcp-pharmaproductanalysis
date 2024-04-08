@@ -267,8 +267,8 @@ def init_columns(df):
 
 def process_data(mcaz_register, atc_index, extract_atc_levels):
     # Ensure start_time is set at the beginning of processing
-    if 'start_time' not in st.session_state or st.session_state.start_time is None:
-        st.session_state.start_time = datetime.now(harare_timezone)
+    if 'start_time_mcaz' not in st.session_state or st.session_state.start_time_mcaz is None:
+        st.session_state.start_time_mcaz = datetime.now(harare_timezone)
         
     # Prepare the ATC index
     atc_index['Name'] = atc_index['Name'].astype(str)
@@ -284,20 +284,20 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
         mcaz_register['route'] = ""  # You might need to adjust this based on how you populate 'route'
     mcaz_register['route'] = mcaz_register['route'].astype(str)
     
-    total_rows = len(mcaz_register)
-    processed_rows = st.session_state.get('processed_rows', 0)
+    total_rows_mcaz = len(mcaz_register)
+    processed_rows_mcaz = st.session_state.get('processed_rows', 0)
     
     progress_bar = st.progress(0)
     st.subheader('Processing and mapping data...')
-    st.session_state.start_time = datetime.now(harare_timezone) 
-    st.write(f"Processing started at: {st.session_state.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    st.session_state.start_time_mcaz = datetime.now(harare_timezone) 
+    st.write(f"Processing started at: {st.session_state.start_time_mcaz.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Ensure necessary columns exist
     for col in ['Best Match Name', 'Match Score', 'ATCCode']:
         if col not in mcaz_register.columns:
             mcaz_register[col] = None
 
-    for index, row in mcaz_register.iloc[processed_rows:].iterrows():
+    for index, row in mcaz_register.iloc[processed_rows_mcaz:].iterrows():
         combined_ingredient_route = f"{row['Generic Name']} | {row.get('route', 'nan')}"
         
         match_result = process.extractOne(combined_ingredient_route, atc_index['Combined'], scorer=fuzz.ratio)
@@ -315,16 +315,16 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
         mcaz_register.at[index, 'Match Score'] = match_score
         mcaz_register.at[index, 'ATCCode'] = atc_code
         
-        progress = int(((index - processed_rows + 1) / total_rows) * 100)
+        progress = int(((index - processed_rows_mcaz + 1) / total_rows_mcaz) * 100)
         progress_bar.progress(progress)
-        st.session_state.processed_rows = index + 1
+        st.session_state.processed_rows_mcaz = index + 1
   
     progress_bar.progress(100)
-    st.session_state.end_time = datetime.now(harare_timezone)
-    if st.session_state.start_time is not None and st.session_state.end_time is not None:
-        processing_time = st.session_state.end_time - st.session_state.start_time
-        st.write(f"Processing completed at: {st.session_state.end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        st.write(f"Total processing time: {processing_time}")
+    st.session_state.end_time_mcaz = datetime.now(harare_timezone)
+    if st.session_state.start_time_mcaz is not None and st.session_state.end_time_mcaz is not None:
+        processing_time_mcaz = st.session_state.end_time_mcaz - st.session_state.start_time_mcaz
+        st.write(f"Processing completed at: {st.session_state.end_time_mcaz.strftime('%Y-%m-%d %H:%M:%S')}")
+        st.write(f"Total processing time: {processing_time_mcaz}")
     else:
         st.error("Processing time could not be calculated due to missing start or end time.")
     
@@ -393,7 +393,7 @@ def process_data_fda(fda_register, atc_index, extract_atc_levels):
     else:
         st.error("Processing time could not be calculated due to missing start or end time.")
     
-    st.session_state.fuzzy_matched_data = fda_register  # Save processed data for later use
+    st.session_state.fuzzy_matched_data_fda = fda_register  # Save processed data for later use
 
 def check_required_columns(df, required_columns, level):
     """
@@ -778,118 +778,94 @@ def display_main_application_content():
                 # Download Dataframe
                 csv = convert_df_to_csv(filtered_data)
                 st.download_button(label="Download Filtered Data as CSV", data=csv, file_name='filtered_data.csv', mime='text/csv')
-            
+                
             # Start of the Streamlit UI layout
-            st.subheader("Data Processing with Fuzzy Matching and ATC Code Extraction")
+            st.subheader("MCAZ Data Processing with Fuzzy Matching and ATC Code Extraction")
 
-            # Choose the type of medicine
             medicine_type = st.radio("Select Medicine Type", ["Human Medicine", "Veterinary Medicine"])
 
-            # Initialize session state for fuzzy matching data and ATC level data
+            # Initialize or ensure session state variables are available
             if 'fuzzy_matched_data' not in st.session_state:
                 st.session_state.fuzzy_matched_data = pd.DataFrame()
-            if 'atc_level_data' not in st.session_state:
-                st.session_state.atc_level_data = pd.DataFrame()
+            if 'atc_level_data_mcaz' not in st.session_state:
+                st.session_state.atc_level_data_mcaz = pd.DataFrame()
+            if 'mcaz_register' not in st.session_state:
+                st.session_state.mcaz_register = pd.DataFrame()
 
             mcaz_register_file = st.file_uploader("Upload MCAZ Register File", type=['csv'], key="mcaz_register_uploader")
-            atc_index_file = st.file_uploader(f"Upload {'Human' if medicine_type == 'Human Medicine' else 'Veterinary'} ATC Index File", type=['csv'], key="atc_index_uploader")
+            atc_index_file = st.file_uploader(f"Upload {'Human' if medicine_type == 'Human Medicine' else 'Veterinary'} ATC Index File", type=['csv'], key="atc_index_uploader_mcaz")
 
-            # Initialize or reset session state variables
             if 'processed_rows' not in st.session_state:
                 st.session_state.processed_rows = 0
             if 'resume_processing' not in st.session_state:
                 st.session_state.resume_processing = False
 
-            # Verify files are uploaded and have the required columns before processing
             if mcaz_register_file and atc_index_file:
-                mcaz_register = load_file(mcaz_register_file)
+                st.session_state.mcaz_register = load_file(mcaz_register_file)
                 atc_index = load_file(atc_index_file)
-                mcaz_register = init_columns(mcaz_register)
-                
-                # Add a new column 'route' by extracting the part after the semicolon in the 'Form' column
-                mcaz_register['route'] = mcaz_register['Form'].apply(lambda x: x.split(';')[-1] if pd.notnull(x) else None)
 
                 # Required columns for MCAZ register and ATC Index file
                 required_mcaz_columns = ['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 'Applicant Name','Principal Name']
                 required_atc_columns = ['ATCCode', 'Name']
 
-                # Check if uploaded files contain the required columns
-                if not all(column in mcaz_register.columns for column in required_mcaz_columns):
+                if not all(column in st.session_state.mcaz_register.columns for column in required_mcaz_columns):
                     st.error("MCAZ Register file is missing one or more required columns.")
                 elif not all(column in atc_index.columns for column in required_atc_columns):
                     st.error("ATC Index file is missing one or more required columns.")
                 else:
-                    # Proceed with processing if all required columns are present
-                    if st.button("Start/Resume Processing"):
+                    st.session_state.mcaz_register = init_columns(st.session_state.mcaz_register)
+                    
+                    # Add a new column 'route' by extracting the part after the semicolon in the 'Form' column
+                    st.session_state.mcaz_register['route'] = st.session_state.mcaz_register['Form'].apply(lambda x: x.split(';')[-1] if pd.notnull(x) else None)
+
+                    extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
+                    
+                    # Proceed with processing only if all required columns are present
+                    if st.button("Start/Resume MCAZ Processing", key="mcaz_resume"):
                         st.session_state.resume_processing = True
-                        process_data(mcaz_register, atc_index, medicine_type)
+                        process_data(st.session_state.mcaz_register, atc_index, extract_atc_levels)
             else:
                 st.error("Please upload both MCAZ Register and ATC Index files to proceed.")
 
-            # Reset and clear session state
-            if st.button("Reset Processing"):
-                for key in ['processed_rows', 'resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data', 'atc_level_data']:
+            if st.button("Reset MCAZ Processing", key="mcaz_reset"):
+                for key in ['processed_rows', 'resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data', 'atc_level_data_mcaz', 'fda_register']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
-                            
-            # Display the processed data only if it exists in session state
+                    
             if 'fuzzy_matched_data' in st.session_state and not st.session_state.fuzzy_matched_data.empty:
                 st.write("Updated MCAZ Register with Fuzzy Matching and ATC Codes:")
                 st.dataframe(st.session_state.fuzzy_matched_data)
-                # ... [Rest of your code]
-                  # Perform further processing on the mcaz_register DataFrame
-                # Make sure to use the DataFrame from session state
-                mcaz_register = st.session_state.fuzzy_matched_data
-                
+
                 csv_data = convert_df_to_csv(st.session_state.fuzzy_matched_data)
-                st.download_button(label="Download MCAZ Register as CSV", data=csv_data, file_name='MCAZ_register_with_atc_codes.csv', mime='text/csv')
+                st.download_button(label="Download MCAZ Register as CSV", data=csv_data, file_name='mcaz_register_with_atc_codes.csv', mime='text/csv')
             else:
                 st.write("No processed data available for download or processing not yet started.")
-            
-#                 # Check if the DataFrame has the required columns before accessing them
-#                 required_columns = ['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 
-#                                     'Principal Name', 'Best Match Name', 'Match Score', 'ATCCode']
-#                 if all(col in mcaz_register.columns for col in required_columns):
-#                     mcaz_register = mcaz_register[required_columns]
-#                     # ... [Any further operations on mcaz_register]
-#                 else:
-#                     st.error("Missing required columns in the dataset.")
-            
-#             # Download file
-#             csv = convert_df_to_csv(mcaz_register)
-#             if csv is not None:
-#                 # Proceed with operations that use 'csv'
-#                 st.download_button(label="Download MCAZ Register as CSV", data=csv, file_name='mcaz_register_with_atc_codes.csv', mime='text/csv', key='download_mcaz_withcodes')
-
-#             else:
-#                 # Handle the case where 'csv' is None, e.g., display a message or take alternative action
-#                 print("No data available to convert to CSV")
                 
-            if mcaz_register is not None:
+            if st.session_state.fuzzy_matched_data is not None:
                 try:
-                    mcaz_register = mcaz_register[['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 'Principal Name', 'Best Match Name', 'Match Score', 'ATCCode']]
+                    st.session_state.fuzzy_matched_data = st.session_state.fuzzy_matched_data[['Generic Name', 'Strength', 'Form', 'Categories for Distribution', 'Manufacturers', 'Principal Name', 'Best Match Name', 'Match Score', 'ATCCode']]
 
                     # Convert all strings in the DataFrame to uppercase
-                    for column in mcaz_register.columns:
-                        mcaz_register[column] = mcaz_register[column].map(lambda x: x.upper() if isinstance(x, str) else x)
+                    for column in st.session_state.fuzzy_matched_data.columns:
+                        st.session_state.fuzzy_matched_data[column] = st.session_state.fuzzy_matched_data[column].map(lambda x: x.upper() if isinstance(x, str) else x)
 
                     # Assuming extract_atc_levels_human and extract_atc_levels_veterinary are defined
                     extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
 
                     # Apply the function to each ATC code in the DataFrame
-                    atc_data = mcaz_register['ATCCode'].apply(lambda x: pd.Series(extract_atc_levels(x)))
+                    atc_data = st.session_state.fuzzy_matched_data['ATCCode'].apply(lambda x: pd.Series(extract_atc_levels(x)))
                     atc_data.columns = ['ATCLevelOneCode', 'ATCLevelTwoCode', 'ATCLevelThreeCode', 'ATCLevelFourCode']
-                    mcaz_register = pd.concat([mcaz_register, atc_data], axis=1)
+                    st.session_state.fuzzy_matched_data = pd.concat([st.session_state.fuzzy_matched_data, atc_data], axis=1)
 
-                    st.session_state.atc_level_data = mcaz_register
+                    st.session_state.atc_level_data_mcaz = st.session_state.fuzzy_matched_data
 
-                    if not st.session_state.atc_level_data.empty:
+                    if not st.session_state.atc_level_data_mcaz.empty:
                         st.write("Updated MCAZ Register with ATC Level Codes:")
-                        st.dataframe(st.session_state.atc_level_data)
+                        st.dataframe(st.session_state.atc_level_data_mcaz)
 
                         # Download file
-                        csv = convert_df_to_csv(st.session_state.atc_level_data)
+                        csv = convert_df_to_csv(st.session_state.atc_level_data_mcaz)
                         st.download_button(label="Download MCAZ Register as CSV", data=csv, file_name='mcaz_register_with_ATC_Level_Codes.csv', mime='text/csv', key='download_updated_register')
                 except KeyError as e:
                     print(f"Column not found in DataFrame: {e}")
@@ -955,7 +931,7 @@ def display_main_application_content():
                         atc_four = safe_load_csv(atc_four_file) if atc_four_file else None
                         
                         # Retrieve the fuzzy_matched_data from session state
-                        mcaz_register =  st.session_state.atc_level_data
+                        mcaz_register =  st.session_state.atc_level_data_mcaz
 
                         # Merge with ATC level descriptions
                         with st.spinner('Merging data with ATC level descriptions...'):
@@ -1703,20 +1679,20 @@ def display_main_application_content():
             medicine_type = st.radio("Select Medicine Type", ["Human Medicine", "Veterinary Medicine"])
 
             # Initialize or ensure session state variables are available
-            if 'fuzzy_matched_data' not in st.session_state:
-                st.session_state.fuzzy_matched_data = pd.DataFrame()
+            if 'fuzzy_matched_data_fda' not in st.session_state:
+                st.session_state.fuzzy_matched_data_fda = pd.DataFrame()
             if 'atc_level_data' not in st.session_state:
                 st.session_state.atc_level_data = pd.DataFrame()
             if 'fda_register' not in st.session_state:
                 st.session_state.fda_register = pd.DataFrame()
 
             fda_register_file = st.file_uploader("Upload FDA Register File", type=['csv'], key="fda_register_uploader")
-            atc_index_file = st.file_uploader(f"Upload {'Human' if medicine_type == 'Human Medicine' else 'Veterinary'} ATC Index File", type=['csv'], key="atc_index_uploader")
+            atc_index_file = st.file_uploader(f"Upload {'Human' if medicine_type == 'Human Medicine' else 'Veterinary'} ATC Index File", type=['csv'], key="atc_index_uploader_fda")
 
-            if 'processed_rows' not in st.session_state:
-                st.session_state.processed_rows = 0
-            if 'resume_processing' not in st.session_state:
-                st.session_state.resume_processing = False
+            if 'fda_processed_rows' not in st.session_state:
+                st.session_state.fda_processed_rows = 0
+            if 'fda_resume_processing' not in st.session_state:
+                st.session_state.fda_resume_processing = False
 
             if fda_register_file and atc_index_file:
                 st.session_state.fda_register = load_file(fda_register_file)
@@ -1744,44 +1720,44 @@ def display_main_application_content():
                     extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
                     
                     # Proceed with processing only if all required columns are present
-                    if st.button("Start/Resume Processing"):
-                        st.session_state.resume_processing = True
+                    if st.button("Start/Resume FDA Processing", key="start_resume_fda"):
+                        st.session_state.fda_resume_processing = True
                         process_data_fda(st.session_state.fda_register, atc_index, extract_atc_levels)
             else:
                 st.error("Please upload both FDA Register and ATC Index files to proceed.")
 
-            if st.button("Reset Processing"):
-                for key in ['processed_rows', 'resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data', 'atc_level_data', 'fda_register']:
+            if st.button("Reset FDA Processing", key="reset_fda"):
+                for key in ['fda_processed_rows', 'fda_resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data_fda', 'atc_level_data', 'fda_register']:
                     if key in st.session_state:
                         del st.session_state[key]
-                st.experimental_rerun()
+                st.rerun()
                     
-            if 'fuzzy_matched_data' in st.session_state and not st.session_state.fuzzy_matched_data.empty:
+            if 'fuzzy_matched_data_fda' in st.session_state and not st.session_state.fuzzy_matched_data_fda.empty:
                 st.write("Updated FDA Register with Fuzzy Matching and ATC Codes:")
-                st.dataframe(st.session_state.fuzzy_matched_data)
+                st.dataframe(st.session_state.fuzzy_matched_data_fda)
 
-                csv_data = convert_df_to_csv(st.session_state.fuzzy_matched_data)
+                csv_data = convert_df_to_csv(st.session_state.fuzzy_matched_data_fda)
                 st.download_button(label="Download FDA Register as CSV", data=csv_data, file_name='fda_register_with_atc_codes.csv', mime='text/csv')
             else:
                 st.write("No processed data available for download or processing not yet started.")
                 
-            if st.session_state.fuzzy_matched_data is not None:
+            if st.session_state.fuzzy_matched_data_fda is not None:
                 try:
-                    st.session_state.fuzzy_matched_data = st.session_state.fuzzy_matched_data[['Ingredient', 'DF;Route', 'Strength', 'Trade_Name', 'Applicant', 'Best Match Name', 'Match Score', 'ATCCode']]
+                    st.session_state.fuzzy_matched_data_fda = st.session_state.fuzzy_matched_data_fda[['Ingredient', 'DF;Route', 'Strength', 'Trade_Name', 'Applicant', 'Best Match Name', 'Match Score', 'ATCCode']]
 
                     # Convert all strings in the DataFrame to uppercase
-                    for column in st.session_state.fuzzy_matched_data.columns:
-                        st.session_state.fuzzy_matched_data[column] = st.session_state.fuzzy_matched_data[column].map(lambda x: x.upper() if isinstance(x, str) else x)
+                    for column in st.session_state.fuzzy_matched_data_fda.columns:
+                        st.session_state.fuzzy_matched_data_fda[column] = st.session_state.fuzzy_matched_data_fda[column].map(lambda x: x.upper() if isinstance(x, str) else x)
 
                     # Assuming extract_atc_levels_human and extract_atc_levels_veterinary are defined
                     extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
 
                     # Apply the function to each ATC code in the DataFrame
-                    atc_data = st.session_state.fuzzy_matched_data['ATCCode'].apply(lambda x: pd.Series(extract_atc_levels(x)))
+                    atc_data = st.session_state.fuzzy_matched_data_fda['ATCCode'].apply(lambda x: pd.Series(extract_atc_levels(x)))
                     atc_data.columns = ['ATCLevelOneCode', 'ATCLevelTwoCode', 'ATCLevelThreeCode', 'ATCLevelFourCode']
-                    st.session_state.fuzzy_matched_data = pd.concat([st.session_state.fuzzy_matched_data, atc_data], axis=1)
+                    st.session_state.fuzzy_matched_data_fda = pd.concat([st.session_state.fuzzy_matched_data_fda, atc_data], axis=1)
 
-                    st.session_state.atc_level_data = st.session_state.fuzzy_matched_data
+                    st.session_state.atc_level_data = st.session_state.fuzzy_matched_data_fda
 
                     if not st.session_state.atc_level_data.empty:
                         st.write("Updated FDA Register with ATC Level Codes:")
@@ -1813,13 +1789,13 @@ def display_main_application_content():
             required_columns_atc_four = ['ATCLevelFourCode', 'Chemical Subgroup']
 
             # File uploaders for ATC level description files
-            atc_one_file = st.file_uploader("Upload ATC Level One Description File", type=['csv'], key="atc_one_uploader_one")
-            atc_two_file = st.file_uploader("Upload ATC Level Two Description File", type=['csv'], key="atc_two_uploader_two")
-            atc_three_file = st.file_uploader("Upload ATC Level Three Description File", type=['csv'], key="atc_three_uploader_three")
-            atc_four_file = st.file_uploader("Upload ATC Level Four Description File", type=['csv'], key="atc_four_uploader_four")
+            atc_one_file = st.file_uploader("Upload ATC Level One Description File", type=['csv'], key="atc_one_uploader_one_fda")
+            atc_two_file = st.file_uploader("Upload ATC Level Two Description File", type=['csv'], key="atc_two_uploader_two_fda")
+            atc_three_file = st.file_uploader("Upload ATC Level Three Description File", type=['csv'], key="atc_three_uploader_three_fda")
+            atc_four_file = st.file_uploader("Upload ATC Level Four Description File", type=['csv'], key="atc_four_uploader_four_fda")
 
             # Button to trigger the check operation
-            check_data = st.button("Check Required Columns")
+            check_data = st.button("Check Required Columns", key = "fda_data")
 
             if check_data:
                 # Reset the check_passed flag
@@ -1841,10 +1817,10 @@ def display_main_application_content():
                 st.info("Please upload ATC level description files and press 'Check Required Columns'.")
 
             # Button to trigger the merge operation
-            merge_data = st.button("Merge Data")
+            merge_data = st.button("Merge Data", key = "fda_merge")
 
             if merge_data:
-                if 'fuzzy_matched_data' in st.session_state and not st.session_state.fuzzy_matched_data.empty:
+                if 'fuzzy_matched_data_fda' in st.session_state and not st.session_state.fuzzy_matched_data_fda.empty:
                     if st.session_state['check_passed']:  # Check if all required columns are present
                         # Your merging logic here...
                         # Load ATC description files if uploaded
@@ -1854,7 +1830,7 @@ def display_main_application_content():
                         atc_four = safe_load_csv(atc_four_file) if atc_four_file else None
                         # Merge with ATC level descriptions
                         with st.spinner('Merging data with ATC level descriptions...'):
-                            merged_data = st.session_state.fuzzy_matched_data.copy()  # Work on a copy to prevent modifying the original data prematurely
+                            merged_data = st.session_state.fuzzy_matched_data_fda.copy()  # Work on a copy to prevent modifying the original data prematurely
                             if atc_one is not None and 'ATCLevelOneCode' in merged_data.columns:
                                 merged_data = merged_data.merge(atc_one, on='ATCLevelOneCode', how='left')
                             if atc_two is not None and 'ATCLevelTwoCode' in merged_data.columns:
@@ -1880,7 +1856,7 @@ def display_main_application_content():
                     st.warning("Please complete the fuzzy matching process and ensure ATC level description files are uploaded.")
 
             # Download file
-            csv = convert_df_to_csv(st.session_state.fuzzy_matched_data)
+            csv = convert_df_to_csv(st.session_state.fuzzy_matched_data_fda)
             if csv is not None:
                 # Proceed with operations that use 'csv'
                 st.download_button(label="Download FDA Register as CSV", data=csv, file_name='fda_register_with_atc_description.csv', mime='text/csv', key='download_mcaz_withatcdescription_fda')
