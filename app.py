@@ -17,6 +17,7 @@ from datetime import datetime
 import os
 import toml
 import chardet
+from rapidfuzz import process, fuzz
 
 # Specify the timezone for Harare
 harare_timezone = ZoneInfo("Africa/Harare")
@@ -266,31 +267,29 @@ def init_columns(df):
     return df
 
 def process_data(mcaz_register, atc_index, extract_atc_levels):
-    # Ensure start_time is set at the beginning of processing
+    # Initialize session state for timing and progress if not already done
     if 'start_time_mcaz' not in st.session_state or st.session_state.start_time_mcaz is None:
         st.session_state.start_time_mcaz = datetime.now(harare_timezone)
-        
+    
     # Prepare the ATC index
     atc_index['Name'] = atc_index['Name'].astype(str)
     if 'route' not in atc_index.columns:
         atc_index['route'] = ""  # Adding a default empty 'route' if not present
     atc_index['route'] = atc_index['route'].astype(str)
-    # Combine 'Name' and 'route' for fuzzy matching
     atc_index['Combined'] = atc_index['Name'] + " | " + atc_index['route']
     combined_to_atc_code = dict(zip(atc_index['Combined'], atc_index['ATCCode']))
     
     # Prepare the FDA register for 'route' if not present
     if 'route' not in mcaz_register.columns:
-        mcaz_register['route'] = ""  # You might need to adjust this based on how you populate 'route'
+        mcaz_register['route'] = ""  # Adjust based on 'route' population
     mcaz_register['route'] = mcaz_register['route'].astype(str)
     
     total_rows_mcaz = len(mcaz_register)
-    processed_rows_mcaz = st.session_state.get('processed_rows', 0)
+    processed_rows_mcaz = st.session_state.get('processed_rows_mcaz', 0)
     
     progress_bar = st.progress(0)
     st.subheader('Processing and mapping data...')
-    st.session_state.start_time_mcaz = datetime.now(harare_timezone) 
-    st.write(f"Processing started at: {st.session_state.start_time_mcaz.strftime('%Y-%m-%d %H:%M:%S')}")
+    st.write(f"Processing started at: {datetime.now(harare_timezone).strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Ensure necessary columns exist
     for col in ['Best Match Name', 'Match Score', 'ATCCode']:
@@ -298,19 +297,19 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
             mcaz_register[col] = None
 
     for index, row in mcaz_register.iloc[processed_rows_mcaz:].iterrows():
-        combined_ingredient_route = f"{row['Generic Name']} | {row.get('route', 'nan')}"
+        combined_ingredient_route = f"{row['Generic Name']} | {row.get('route', '')}"
         
-        match_result = process.extractOne(combined_ingredient_route, atc_index['Combined'], scorer=fuzz.ratio)
+        # Use rapidfuzz for fuzzy matching
+        match_result = process.extractOne(combined_ingredient_route, atc_index['Combined'], scorer=fuzz.WRatio)
 
-        # Handle None result from extractOne
         if match_result is None:
             best_match_combined, match_score = None, 0
         else:
-            best_match_combined, match_score, _ = match_result
+            best_match_combined, match_score = match_result[0], match_result[1]
         
-        atc_code = combined_to_atc_code.get(best_match_combined, None) if best_match_combined else None
-        
+        atc_code = combined_to_atc_code.get(best_match_combined) if best_match_combined else None
         best_match_name = best_match_combined.split(' | ')[0] if best_match_combined else None
+        
         mcaz_register.at[index, 'Best Match Name'] = best_match_name
         mcaz_register.at[index, 'Match Score'] = match_score
         mcaz_register.at[index, 'ATCCode'] = atc_code
@@ -318,20 +317,17 @@ def process_data(mcaz_register, atc_index, extract_atc_levels):
         progress = int(((index - processed_rows_mcaz + 1) / total_rows_mcaz) * 100)
         progress_bar.progress(progress)
         st.session_state.processed_rows_mcaz = index + 1
-  
+
     progress_bar.progress(100)
-    st.session_state.end_time_mcaz = datetime.now(harare_timezone)
-    if st.session_state.start_time_mcaz is not None and st.session_state.end_time_mcaz is not None:
-        processing_time_mcaz = st.session_state.end_time_mcaz - st.session_state.start_time_mcaz
-        st.write(f"Processing completed at: {st.session_state.end_time_mcaz.strftime('%Y-%m-%d %H:%M:%S')}")
-        st.write(f"Total processing time: {processing_time_mcaz}")
-    else:
-        st.error("Processing time could not be calculated due to missing start or end time.")
+    processing_end_time_mcaz = datetime.now(harare_timezone)
+    processing_time_mcaz = processing_end_time_mcaz - st.session_state.start_time_mcaz
+    st.write(f"Processing completed at: {processing_end_time_mcaz.strftime('%Y-%m-%d %H:%M:%S')}")
+    st.write(f"Total processing time: {processing_time_mcaz}")
     
     st.session_state.fuzzy_matched_data = mcaz_register  # Save processed data for later use
 
 def process_data_fda(fda_register, atc_index, extract_atc_levels):
-    # Ensure start_time is set at the beginning of processing
+    # Initialize the start time if not already set
     if 'start_time' not in st.session_state or st.session_state.start_time is None:
         st.session_state.start_time = datetime.now(harare_timezone)
         
@@ -346,11 +342,11 @@ def process_data_fda(fda_register, atc_index, extract_atc_levels):
     
     # Prepare the FDA register for 'route' if not present
     if 'route' not in fda_register.columns:
-        fda_register['route'] = ""  # You might need to adjust this based on how you populate 'route'
+        fda_register['route'] = ""  # Adjust based on how you populate 'route'
     fda_register['route'] = fda_register['route'].astype(str)
     
     total_rows = len(fda_register)
-    processed_rows = st.session_state.get('processed_rows', 0)
+    fda_processed_rows = st.session_state.get('fda_processed_rows', 0)
     
     progress_bar = st.progress(0)
     st.subheader('Processing and mapping data...')
@@ -362,27 +358,28 @@ def process_data_fda(fda_register, atc_index, extract_atc_levels):
         if col not in fda_register.columns:
             fda_register[col] = None
 
-    for index, row in fda_register.iloc[processed_rows:].iterrows():
-        combined_ingredient_route = f"{row['Ingredient']} | {row.get('route', 'nan')}"
+    for index, row in fda_register.iloc[fda_processed_rows:].iterrows():
+        combined_ingredient_route = f"{row['Ingredient']} | {row.get('route', '')}"
         
+        # Use rapidfuzz for fuzzy matching
         match_result = process.extractOne(combined_ingredient_route, atc_index['Combined'], scorer=fuzz.ratio)
 
         # Handle None result from extractOne
         if match_result is None:
             best_match_combined, match_score = None, 0
         else:
-            best_match_combined, match_score, _ = match_result
+            best_match_combined, match_score = match_result[0], match_result[1]
         
-        atc_code = combined_to_atc_code.get(best_match_combined, None) if best_match_combined else None
+        atc_code = combined_to_atc_code.get(best_match_combined) if best_match_combined else None
         
         best_match_name = best_match_combined.split(' | ')[0] if best_match_combined else None
         fda_register.at[index, 'Best Match Name'] = best_match_name
         fda_register.at[index, 'Match Score'] = match_score
         fda_register.at[index, 'ATCCode'] = atc_code
         
-        progress = int(((index - processed_rows + 1) / total_rows) * 100)
+        progress = int(((index - fda_processed_rows + 1) / total_rows) * 100)
         progress_bar.progress(progress)
-        st.session_state.processed_rows = index + 1
+        st.session_state.fda_processed_rows = index + 1
   
     progress_bar.progress(100)
     st.session_state.end_time = datetime.now(harare_timezone)
@@ -795,9 +792,9 @@ def display_main_application_content():
             mcaz_register_file = st.file_uploader("Upload MCAZ Register File", type=['csv'], key="mcaz_register_uploader")
             atc_index_file = st.file_uploader(f"Upload {'Human' if medicine_type == 'Human Medicine' else 'Veterinary'} ATC Index File", type=['csv'], key="atc_index_uploader_mcaz")
 
-            if 'processed_rows' not in st.session_state:
-                st.session_state.processed_rows = 0
-            if 'resume_processing' not in st.session_state:
+            if 'processed_rows_mcaz' not in st.session_state:
+                st.session_state.processed_rows_mcaz = 0
+            if 'resume_processing_mcaz' not in st.session_state:
                 st.session_state.resume_processing = False
 
             if mcaz_register_file and atc_index_file:
@@ -822,13 +819,13 @@ def display_main_application_content():
                     
                     # Proceed with processing only if all required columns are present
                     if st.button("Start/Resume MCAZ Processing", key="mcaz_resume"):
-                        st.session_state.resume_processing = True
+                        st.session_state.resume_processing_mcaz = True
                         process_data(st.session_state.mcaz_register, atc_index, extract_atc_levels)
             else:
                 st.error("Please upload both MCAZ Register and ATC Index files to proceed.")
 
             if st.button("Reset MCAZ Processing", key="mcaz_reset"):
-                for key in ['processed_rows', 'resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data', 'atc_level_data_mcaz', 'fda_register']:
+                for key in ['processed_rows_mcaz', 'resume_processing_mcaz', 'start_time_mcaz', 'processing_end_time_mcaz', 'fuzzy_matched_data', 'atc_level_data_mcaz', 'mcaz_register']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
@@ -1727,7 +1724,7 @@ def display_main_application_content():
                 st.error("Please upload both FDA Register and ATC Index files to proceed.")
 
             if st.button("Reset FDA Processing", key="reset_fda"):
-                for key in ['fda_processed_rows', 'fda_resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data_fda', 'atc_level_data', 'fda_register']:
+                for key in ['fda_processed_rows', 'fda_resume_processing', 'start_time', 'end_time', 'fuzzy_matched_data_fda', 'atc_level_data', 'st.session_state.fda_register']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
