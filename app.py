@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 import streamlit as st
@@ -2595,25 +2595,27 @@ def display_main_application_content():
               
     else:
         st.warning('Please upload MCAZ Register CSV file.')
-
+        
 def main():
-    # Password input
+    # Logo and header
     st.image("logo.png", width=200)
     st.markdown("<h1 style='font-size:30px;'>Pharmaceutical Products Analysis Application</h1>", unsafe_allow_html=True)
+    
+    # User name and password input
+    user_name_guess = st.text_input('Enter your user name').strip()
     password_guess = st.text_input('What is the Password?', type="password").strip()
 
-    # Check if password is entered and incorrect
-    if password_guess and password_guess != st.secrets["password"]:
-        st.error("Incorrect password. Please try again.")
-        st.stop()
+    # Check if user name and password are entered and incorrect
+    if user_name_guess and password_guess:
+        if user_name_guess != st.secrets["user_name"] or password_guess != st.secrets["password"]:
+            st.error("Incorrect user name or password. Please try again.")
+            st.stop()
 
-    # Check if password is correct
-    if password_guess == st.secrets["password"]:
+    # Check if user name and password are correct
+    if user_name_guess == st.secrets["user_name"] and password_guess == st.secrets["password"]:
         try:
-            # Correctly using datetime.strptime now
-            # expiration_date = st.secrets["expiration_date"]
+            # Parse the expiration date
             expiration_date = datetime.strptime(st.secrets["expiration_date"], "%d-%m-%Y")
-
         except Exception as e:
             st.error(f"Error parsing expiration date: {e}")
             st.stop()
@@ -2623,18 +2625,12 @@ def main():
             st.error("Product license has expired. Please contact the administrator.")
             st.stop()
         else:
-            st.success("Password is correct and license has not expired")
+            st.success("User name and password are correct and license has not expired")
 
         # Display main application content if the user is logged in and the password is not expired
         display_main_application_content()
 
 if __name__ == "__main__":
     main()
-
-
-
-# In[ ]:
-
-
 
 
