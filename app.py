@@ -570,7 +570,7 @@ def perform_drugs_fda_analysis():
     # Check if the data has already been processed and stored in session state
     if 'processed_data_Drugs' not in st.session_state:
         uploaded_files = st.file_uploader(
-            "Upload files",
+            "Upload Applications, Products@FDA, Submissions, MarketingStatus and MarketingStatus_Lookup files",
             accept_multiple_files=True,
             help="Upload the files: Products@FDA.csv, Applications.csv, Submissions.csv, MarketingStatus.csv, MarketingStatus_Lookup.csv"
         )
@@ -845,7 +845,7 @@ def display_main_application_content():
 
                     # Convert all strings in the DataFrame to uppercase
                     for column in st.session_state.fuzzy_matched_data.columns:
-                        st.session_state.fuzzy_matched_data[column] = st.session_state.fuzzy_matched_data[column].map(lambda x: x.upper() if isinstance(x, str) else x)
+                        st.session_state.fuzzy_matched_data.loc[:, column] = st.session_state.fuzzy_matched_data.loc[:, column].map(lambda x: x.upper() if isinstance(x, str) else x)
 
                     # Assuming extract_atc_levels_human and extract_atc_levels_veterinary are defined
                     extract_atc_levels = extract_atc_levels_human if medicine_type == 'Human Medicine' else extract_atc_levels_veterinary
@@ -968,50 +968,55 @@ def display_main_application_content():
                 # Handle the case where 'csv' is None, e.g., display a message or take alternative action
                 print("No data available to convert to CSV")
                 
-            # Filter options presented to the user
-            filter_options = ["None", "ATCLevelOneDescript", "ATCLevelTwoDescript", "ATCLevelThreeDescript", "Chemical Subgroup", "Generic Name"]
-            selected_filter = st.radio("Select a filter", filter_options)
+            # Define filter options for ATC Levels and Principal
+            atc_filter_options = ["None", "ATCLevelOneDescript", "ATCLevelTwoDescript", "ATCLevelThreeDescript", "Chemical Subgroup"]
+            principal_filter_options = ["None", "Principal Name"]
 
-            # Check if 'fda_with_ATCCodeDescription' is in session state and is not empty
+            # Let user select filters
+            selected_atc_filter = st.radio("Select an ATC filter", atc_filter_options)
+            selected_principal_filter = st.radio("Select a Principal filter", principal_filter_options)
+
+            # Check if data is in session state and is not empty
             if 'mcaz_with_ATCCodeDescription' in st.session_state and not st.session_state['mcaz_with_ATCCodeDescription'].empty:
-                # Condition to handle filtering
-                if selected_filter != "None":
-                    # Convert all values in the selected filter column to string, get unique values, and sort
-                    filter_values = sorted(st.session_state['mcaz_with_ATCCodeDescription'][selected_filter].astype(str).unique())
-                    selected_values = st.multiselect(f"Select {selected_filter}", filter_values)
+                # Start with the full dataset to handle scope
+                filtered_data = st.session_state['mcaz_with_ATCCodeDescription'].copy()
 
-                    # Initialize filtered_data with the full dataset to handle scope
-                    filtered_data = st.session_state['mcaz_with_ATCCodeDescription'].copy()
+                filter_message = "Filtered Data:"
 
-                    if selected_values:
-                        # Apply filter based on selected values
-                        filtered_data = filtered_data[filtered_data[selected_filter].astype(str).isin(selected_values)]
-                        st.write(f"Filtered Data by {selected_filter}:")
-                    else:
-                        st.write("Displaying unfiltered data (no specific filter values selected):")
+                # Filter by ATC Level if selected
+                if selected_atc_filter != "None":
+                    atc_filter_values = sorted(filtered_data[selected_atc_filter].astype(str).unique())
+                    selected_atc_values = st.multiselect(f"Select {selected_atc_filter}", atc_filter_values)
+                    if selected_atc_values:
+                        filtered_data = filtered_data[filtered_data[selected_atc_filter].astype(str).isin(selected_atc_values)]
+                        filter_message += f" {selected_atc_filter} ({', '.join(selected_atc_values)})"
 
-                    # Display filtered data and count
-                    st.dataframe(filtered_data)
-                    st.write(f"Filtered data count: {len(filtered_data)}")
+                # Filter by Principal Name if selected
+                if selected_principal_filter != "None":
+                    principal_filter_values = sorted(filtered_data['Principal Name'].astype(str).unique())
+                    selected_principal_values = st.multiselect("Select Principal Name", principal_filter_values)
+                    if selected_principal_values:
+                        filtered_data = filtered_data[filtered_data['Principal Name'].astype(str).isin(selected_principal_values)]
+                        if "Filtered Data:" in filter_message:
+                            filter_message += " and"
+                        filter_message += f" Principal Name ({', '.join(selected_principal_values)})"
 
-                    # Offer CSV download for filtered data
-                    csv = convert_df_to_csv(filtered_data)
-                    st.download_button(label="Download Filtered Data as CSV", data=csv, file_name='mcaz_register_filtered.csv', mime='text/csv', key='download_filtered')
+                # Display selected filters
+                if selected_atc_filter == "None" and selected_principal_filter == "None":
+                    st.write("Displaying unfiltered data:")
                 else:
-                    st.write("No filter selected. Displaying unfiltered data:")
-                    st.dataframe(st.session_state['mcaz_with_ATCCodeDescription'])
-                    st.write(f"Total data count: {len(st.session_state['mcaz_with_ATCCodeDescription'])}")
+                    st.write(filter_message + ":")
 
-                    # Optionally, offer download of unfiltered data
-                    csv = convert_df_to_csv(st.session_state['mcaz_with_ATCCodeDescription'])
-                    st.download_button(label="Download Unfiltered Data as CSV", data=csv, file_name='mcaz_register_unfiltered.csv', mime='text/csv', key='download_unfiltered')
+                # Display filtered data and count
+                st.dataframe(filtered_data)
+                st.write(f"Filtered data count: {len(filtered_data)}")
+
+                # Offer CSV download for filtered data
+                csv = convert_df_to_csv(filtered_data)
+                st.download_button(label="Download Filtered Data as CSV", data=csv, file_name='mcaz_register_filtered.csv', mime='text/csv', key='download_filtered')
             else:
-                # Handle case where the data isn't available or hasn't been loaded
-                st.write("Data not available. Please ensure data is loaded and processed.")
-           
-            # Streamlit UI layout for Data Filtering Based on User Type and Selected Filter
-            st.subheader("Data Filtering Based on User Type and Selected Filter")
-
+                st.write("No data loaded or data is empty.")
+                  
             # Medicine type selection
             medicine_type_options = ["Select Medicine Type", "Human Medicine", "Veterinary Medicine"]
             selected_medicine_type = st.selectbox("Select Medicine Type", medicine_type_options)
