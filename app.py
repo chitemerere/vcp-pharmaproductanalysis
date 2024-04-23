@@ -1298,7 +1298,8 @@ def display_main_application_content():
                 filtered_data = data[data['Manufacturers'] == selected_manufacturer]
 
             # Convert 'Date Registered' to datetime
-            filtered_data['Date Registered'] = pd.to_datetime(filtered_data['Date Registered'])
+            filtered_data['Date Registered'] = pd.to_datetime(filtered_data['Date Registered'], format='%m/%d/%Y', errors='coerce')
+#             filtered_data['Date Registered'] = pd.to_datetime(filtered_data['Date Registered'])
             
            # Yearly trend analysis
             yearly_trend = filtered_data['Date Registered'].dt.year.value_counts().sort_index()
@@ -1347,7 +1348,7 @@ def display_main_application_content():
                 mcaz_register = st.session_state['mcaz_with_ATCCodeDescription']
 
                 # Remove complete duplicates
-                mcaz_register = mcaz_register.drop_duplicates()
+#                 mcaz_register = mcaz_register.drop_duplicates()
 
                 if not mcaz_register.empty:
                     # Convert 'Principal Name' to string and handle NaN values
@@ -1411,7 +1412,7 @@ def display_main_application_content():
                 mcaz_register = st.session_state['mcaz_with_ATCCodeDescription']
 
                 # Remove complete duplicates
-                mcaz_register = mcaz_register.drop_duplicates()
+#                 mcaz_register = mcaz_register.drop_duplicates()
 
                 if not mcaz_register.empty:
                     # Convert 'Principal Name' to string and handle NaN values
@@ -1475,7 +1476,7 @@ def display_main_application_content():
                 mcaz_register = st.session_state['mcaz_with_ATCCodeDescription']
 
                 # Remove complete duplicates
-                mcaz_register = mcaz_register.drop_duplicates()
+#                 mcaz_register = mcaz_register.drop_duplicates()
 
                 if not mcaz_register.empty:
                     # Convert 'Principal Name' to string and handle NaN values
@@ -2421,6 +2422,9 @@ def display_main_application_content():
                 st.session_state.filtered_data = filtered_df
 
                 st.dataframe(filtered_df)
+                # Count and display the number of drugs
+                firm_count = len(filtered_df)
+                st.write(f"Total Number of Unique Firms: {firm_count}")
 
                 # Download button for the filtered dataframe
                 csv = filtered_df.to_csv(index=False).encode('utf-8')
