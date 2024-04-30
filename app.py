@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 import streamlit as st
@@ -463,6 +463,51 @@ def filter_dataframe_establishments(df, firm_name, country, operations, registra
     
     # Sort the dataframe
     return df.sort_values(by=["FIRM_NAME", "Country", "OPERATIONS", "REGISTRANT_NAME"], ascending=True)
+
+def check_columns_establishment(file, required_columns):
+    try:
+        df = pd.read_csv(file)
+        # Normalize the column names by stripping spaces and converting to a consistent case
+        df.columns = df.columns.str.strip().str.upper()
+        required_columns = [column.strip().upper() for column in required_columns]
+        
+        # Check for missing columns
+        missing_columns = [column for column in required_columns if column not in df.columns]
+        if missing_columns:
+            st.error(f"Missing columns in uploaded file: {', '.join(missing_columns)}")
+            return None
+        return df
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
+
+# def check_columns_establishment(file, required_columns):
+#     try:
+#         df = pd.read_csv(file)
+#         missing_columns = [column for column in required_columns if column not in df.columns]
+#         if missing_columns:
+#             st.error(f"Missing columns in uploaded file: {', '.join(missing_columns)}")
+#             return None
+#         return df
+#     except Exception as e:
+#         st.error(f"Error reading file: {e}")
+#         return None
+
+# def check_columns_establishment(file, required_columns):
+#     # Function to check if the uploaded file contains all required columns
+#     df = pd.read_csv(file)
+#     missing_columns = [column for column in required_columns if column not in df.columns]
+#     if missing_columns:
+#         st.error(f"Missing columns in uploaded file: {', '.join(missing_columns)}")
+#         return False
+#     return df
+
+def apply_hyperlinks(df):
+    # Apply hyperlink transformations for display
+    df['FIRM_NAME'] = df['FIRM_NAME'].apply(lambda x: f'<a href="https://www.google.com/search?q={x}" target="_blank">{x}</a>')
+    df['ESTABLISHMENT_CONTACT_EMAIL'] = df['ESTABLISHMENT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
+    df['REGISTRANT_CONTACT_EMAIL'] = df['REGISTRANT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
+    return df
 
 def load_data_nme(uploaded_file):
     if uploaded_file is not None:
@@ -2383,46 +2428,59 @@ def display_main_application_content():
                     )
             else:
                 st.write("Please upload a sales data CSV file to get started.")
-        
+                
         # FDA Drug Establishment Sites
         elif choice == 'FDA Drug Establishment Sites':
             st.subheader('FDA Drug Establishment Sites')
             
-            # File uploader for the Establishment file
-            establishment_file = st.file_uploader("Choose an Establishment CSV file", type="csv")
-            # File uploader for the Country Codes file
-            country_codes_file = st.file_uploader("Choose a Country Codes CSV file", type="csv")
+            # File uploader for the Establishment and Country Codes file
+            establishment_file = st.file_uploader("Choose an Establishment CSV file", type="csv", key="establishment")
+            country_codes_file = st.file_uploader("Choose a Country Codes CSV file", type="csv", key="country_codes")
 
-            if establishment_file is not None and country_codes_file is not None:
-                # Process the uploaded files
-                df = process_uploaded_file(establishment_file)
-                country_codes_df = pd.read_csv(country_codes_file)
+            # Check if both files are uploaded
+            if establishment_file and country_codes_file:
+                with st.spinner('Processing data... Please wait.'):
+                    df = process_uploaded_file(establishment_file)
+                    country_codes_df = pd.read_csv(country_codes_file)
 
-                # Merge the establishment dataframe with the country codes dataframe
-                merged_df = df.merge(country_codes_df, left_on='COUNTRY_CODE', right_on='Alpha-3 code', how='left')
+                    # Merge and process the dataframes
+                    merged_df = df.merge(country_codes_df, left_on='COUNTRY_CODE', right_on='Alpha-3 code', how='left')
+                    merged_df.fillna('Unknown', inplace=True)
 
-                # Ensure all values are strings for sorting and filtering
-                merged_df.fillna('Unknown', inplace=True)
+                    # Keep original firm names for filtering
+                    merged_df['FILTER_FIRM_NAME'] = merged_df['FIRM_NAME']
 
-                # Dropdowns for filtering with sorted options
-                firm_name_options = sorted(merged_df['FIRM_NAME'].unique().tolist())
-                country_options = sorted(merged_df['Country'].unique().tolist())  # Changed to 'Country'
-                operations_options = sorted(merged_df['OPERATIONS'].unique().tolist(), key=lambda x: (x is np.nan, x))
-                registrant_name_options = sorted(merged_df['REGISTRANT_NAME'].unique().tolist())
+                    # Store processed data in session state
+                    st.session_state['merged_data'] = merged_df
 
-                firm_name = st.selectbox("Firm Name", ["All"] + firm_name_options)
-                country = st.selectbox("Country", ["All"] + country_options)  # Changed to 'Country'
-                operations = st.selectbox("Operations", ["All"] + operations_options)
-                registrant_name = st.selectbox("Registrant Name", ["All"] + registrant_name_options)
+            # Dropdown filters
+            if 'merged_data' in st.session_state:
+                firm_name_options = ["All"] + sorted(st.session_state['merged_data']['FILTER_FIRM_NAME'].dropna().unique().tolist())
+                country_options = ["All"] + sorted(st.session_state['merged_data']['Country'].dropna().unique().tolist())
+                operations_options = ["All"] + sorted(st.session_state['merged_data']['OPERATIONS'].dropna().unique().tolist())
+                registrant_name_options = ["All"] + sorted(st.session_state['merged_data']['REGISTRANT_NAME'].dropna().unique().tolist())
 
-                # Filter the dataframe based on selection
-                filtered_df = filter_dataframe_establishments(merged_df, firm_name, country, operations, registrant_name)
+                firm_name = st.selectbox("Firm Name", firm_name_options)
+                country = st.selectbox("Country", country_options)
+                operations = st.selectbox("Operations", operations_options)
+                registrant_name = st.selectbox("Registrant Name", registrant_name_options)
 
-                # Save the filtered dataframe in the session state for persistence across modules
-                st.session_state.filtered_data = filtered_df
+                # Filter data based on selections
+                filtered_df = filter_dataframe_establishments(st.session_state['merged_data'], firm_name, country, operations, registrant_name)
 
-                st.dataframe(filtered_df)
-                # Count and display the number of drugs
+                # Apply hyperlink transformation for display
+                filtered_df['FIRM_NAME'] = filtered_df['FIRM_NAME'].apply(lambda x: f'<a href="https://www.google.com/search?q={x}" target="_blank">{x}</a>')
+                filtered_df['ESTABLISHMENT_CONTACT_EMAIL'] = filtered_df['ESTABLISHMENT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
+                filtered_df['REGISTRANT_CONTACT_EMAIL'] = filtered_df['REGISTRANT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
+
+                # Implement a simple paginator for the filtered data
+                page_number = st.number_input('Page number', min_value=1, max_value=(len(filtered_df) // 10 + 1), value=1)
+                page_size = 10  # items per page
+                start_index = (page_number - 1) * page_size
+                end_index = start_index + page_size
+
+                # Display filtered data
+                st.write(filtered_df[start_index:end_index].to_html(escape=False, index=False), unsafe_allow_html=True)
                 firm_count = len(filtered_df)
                 st.write(f"Total Number of Unique Firms: {firm_count}")
 
@@ -2434,8 +2492,8 @@ def display_main_application_content():
                     file_name='filtered_fda_sites.csv',
                     mime='text/csv',
                 )
-                
-       
+
+           
         # FDA NME & New Biologic Approvals
         if choice == 'FDA NME & New Biologic Approvals':
             st.subheader('FDA NME & New Biologic Approvals')
@@ -2653,5 +2711,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+# In[ ]:
+
+
 
 
