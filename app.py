@@ -430,84 +430,35 @@ def check_prohibited_file_columns(df, required_columns):
         return False, missing_columns
     return True, []
 
-# Helper function to process the uploaded file and generate the "COUNTRY" column
+required_columns_establishment = [
+    "FIRM_NAME", "ADDRESS", "COUNTRY_CODE", "EXPIRATION_DATE", "OPERATIONS",
+    "ESTABLISHMENT_CONTACT_NAME", "ESTABLISHMENT_CONTACT_EMAIL", "REGISTRANT_NAME",
+    "REGISTRANT_CONTACT_NAME", "REGISTRANT_CONTACT_EMAIL"
+]
+
+required_columns_country = ["Country", "Alpha-2 code", "Alpha-3 code"]
+
 def process_uploaded_file(uploaded_file):
     df = pd.read_csv(uploaded_file, encoding='ISO-8859-1')
     df['COUNTRY_CODE'] = df['ADDRESS'].str.extract(r'\(([^)]+)\)$')
-    columns = [
-        "FIRM_NAME",
-        "ADDRESS",
-        "COUNTRY_CODE",
-        "EXPIRATION_DATE",
-        "OPERATIONS",
-        "ESTABLISHMENT_CONTACT_NAME",
-        "ESTABLISHMENT_CONTACT_EMAIL",
-        "REGISTRANT_NAME",
-        "REGISTRANT_CONTACT_NAME",
-        "REGISTRANT_CONTACT_EMAIL"
-    ]
-    df = df[columns]
+
+    if not all(column in df.columns for column in required_columns_establishment):
+        st.error('Uploaded file is missing one or more required columns for establishments.')
+        return None  # Return None to indicate missing columns
+
+    df = df[required_columns_establishment]
     return df
 
-# Define the filter_dataframe function with the 'Country' filter instead of 'Country Code'
 def filter_dataframe_establishments(df, firm_name, country, operations, registrant_name):
     if firm_name != "All":
         df = df[df['FIRM_NAME'] == firm_name]
     if country != "All":
-        df = df[df['Country'] == country]  # Changed to 'Country'
+        df = df[df['Country'] == country]  # Ensure column name is correct
     if operations != "All":
         df = df[df['OPERATIONS'].apply(lambda x: x.strip() == operations)]
-
     if registrant_name != "All":
         df = df[df['REGISTRANT_NAME'] == registrant_name]
-    
-    # Sort the dataframe
     return df.sort_values(by=["FIRM_NAME", "Country", "OPERATIONS", "REGISTRANT_NAME"], ascending=True)
-
-def check_columns_establishment(file, required_columns):
-    try:
-        df = pd.read_csv(file)
-        # Normalize the column names by stripping spaces and converting to a consistent case
-        df.columns = df.columns.str.strip().str.upper()
-        required_columns = [column.strip().upper() for column in required_columns]
-        
-        # Check for missing columns
-        missing_columns = [column for column in required_columns if column not in df.columns]
-        if missing_columns:
-            st.error(f"Missing columns in uploaded file: {', '.join(missing_columns)}")
-            return None
-        return df
-    except Exception as e:
-        st.error(f"Error reading file: {e}")
-        return None
-
-# def check_columns_establishment(file, required_columns):
-#     try:
-#         df = pd.read_csv(file)
-#         missing_columns = [column for column in required_columns if column not in df.columns]
-#         if missing_columns:
-#             st.error(f"Missing columns in uploaded file: {', '.join(missing_columns)}")
-#             return None
-#         return df
-#     except Exception as e:
-#         st.error(f"Error reading file: {e}")
-#         return None
-
-# def check_columns_establishment(file, required_columns):
-#     # Function to check if the uploaded file contains all required columns
-#     df = pd.read_csv(file)
-#     missing_columns = [column for column in required_columns if column not in df.columns]
-#     if missing_columns:
-#         st.error(f"Missing columns in uploaded file: {', '.join(missing_columns)}")
-#         return False
-#     return df
-
-def apply_hyperlinks(df):
-    # Apply hyperlink transformations for display
-    df['FIRM_NAME'] = df['FIRM_NAME'].apply(lambda x: f'<a href="https://www.google.com/search?q={x}" target="_blank">{x}</a>')
-    df['ESTABLISHMENT_CONTACT_EMAIL'] = df['ESTABLISHMENT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
-    df['REGISTRANT_CONTACT_EMAIL'] = df['REGISTRANT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
-    return df
 
 def load_data_nme(uploaded_file):
     if uploaded_file is not None:
@@ -2437,25 +2388,23 @@ def display_main_application_content():
             establishment_file = st.file_uploader("Choose an Establishment CSV file", type="csv", key="establishment")
             country_codes_file = st.file_uploader("Choose a Country Codes CSV file", type="csv", key="country_codes")
 
-            # Check if both files are uploaded
             if establishment_file and country_codes_file:
                 with st.spinner('Processing data... Please wait.'):
                     df = process_uploaded_file(establishment_file)
-                    country_codes_df = pd.read_csv(country_codes_file)
+                    if df is None:
+                        st.stop()
 
-                    # Merge and process the dataframes
+                    country_codes_df = pd.read_csv(country_codes_file)
+                    if not all(column in country_codes_df.columns for column in required_columns_country):
+                        st.error('Uploaded file is missing one or more required columns for country codes.')
+                        st.stop()
+
                     merged_df = df.merge(country_codes_df, left_on='COUNTRY_CODE', right_on='Alpha-3 code', how='left')
                     merged_df.fillna('Unknown', inplace=True)
-
-                    # Keep original firm names for filtering
-                    merged_df['FILTER_FIRM_NAME'] = merged_df['FIRM_NAME']
-
-                    # Store processed data in session state
                     st.session_state['merged_data'] = merged_df
 
-            # Dropdown filters
             if 'merged_data' in st.session_state:
-                firm_name_options = ["All"] + sorted(st.session_state['merged_data']['FILTER_FIRM_NAME'].dropna().unique().tolist())
+                firm_name_options = ["All"] + sorted(st.session_state['merged_data']['FIRM_NAME'].dropna().unique().tolist())
                 country_options = ["All"] + sorted(st.session_state['merged_data']['Country'].dropna().unique().tolist())
                 operations_options = ["All"] + sorted(st.session_state['merged_data']['OPERATIONS'].dropna().unique().tolist())
                 registrant_name_options = ["All"] + sorted(st.session_state['merged_data']['REGISTRANT_NAME'].dropna().unique().tolist())
@@ -2465,10 +2414,7 @@ def display_main_application_content():
                 operations = st.selectbox("Operations", operations_options)
                 registrant_name = st.selectbox("Registrant Name", registrant_name_options)
 
-                # Filter data based on selections
                 filtered_df = filter_dataframe_establishments(st.session_state['merged_data'], firm_name, country, operations, registrant_name)
-
-                # Apply hyperlink transformation for display
                 filtered_df['FIRM_NAME'] = filtered_df['FIRM_NAME'].apply(lambda x: f'<a href="https://www.google.com/search?q={x}" target="_blank">{x}</a>')
                 filtered_df['ESTABLISHMENT_CONTACT_EMAIL'] = filtered_df['ESTABLISHMENT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
                 filtered_df['REGISTRANT_CONTACT_EMAIL'] = filtered_df['REGISTRANT_CONTACT_EMAIL'].apply(lambda x: f'<a href="mailto:{x}">{x}</a>')
@@ -2493,7 +2439,6 @@ def display_main_application_content():
                     mime='text/csv',
                 )
 
-           
         # FDA NME & New Biologic Approvals
         if choice == 'FDA NME & New Biologic Approvals':
             st.subheader('FDA NME & New Biologic Approvals')
