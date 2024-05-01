@@ -431,7 +431,7 @@ def check_prohibited_file_columns(df, required_columns):
     return True, []
 
 required_columns_establishment = [
-    "FIRM_NAME", "ADDRESS", "COUNTRY_CODE", "EXPIRATION_DATE", "OPERATIONS",
+    "FIRM_NAME", "ADDRESS", "EXPIRATION_DATE", "OPERATIONS",
     "ESTABLISHMENT_CONTACT_NAME", "ESTABLISHMENT_CONTACT_EMAIL", "REGISTRANT_NAME",
     "REGISTRANT_CONTACT_NAME", "REGISTRANT_CONTACT_EMAIL"
 ]
@@ -439,15 +439,54 @@ required_columns_establishment = [
 required_columns_country = ["Country", "Alpha-2 code", "Alpha-3 code"]
 
 def process_uploaded_file(uploaded_file):
-    df = pd.read_csv(uploaded_file, encoding='ISO-8859-1')
-    df['COUNTRY_CODE'] = df['ADDRESS'].str.extract(r'\(([^)]+)\)$')
+    try:
+        df = pd.read_csv(uploaded_file, encoding='ISO-8859-1')
+        
+        # Extract COUNTRY_CODE from ADDRESS
+        if 'ADDRESS' in df.columns:
+            df['COUNTRY_CODE'] = df['ADDRESS'].str.extract(r'\(([^)]+)\)$', expand=False)
+            df['COUNTRY_CODE'] = df['COUNTRY_CODE'].fillna('Unknown')
+            columns = [
+                "FIRM_NAME",
+                "ADDRESS",
+                "COUNTRY_CODE",
+                "EXPIRATION_DATE",
+                "OPERATIONS",
+                "ESTABLISHMENT_CONTACT_NAME",
+                "ESTABLISHMENT_CONTACT_EMAIL",
+                "REGISTRANT_NAME",
+                "REGISTRANT_CONTACT_NAME",
+                "REGISTRANT_CONTACT_EMAIL"
+            ]
+            df = df[columns]
+            
+        # Ensure required columns are present, including COUNTRY_CODE
+        if 'COUNTRY_CODE' not in df.columns:
+            df['COUNTRY_CODE'] = 'Unknown'  # Ensuring COUNTRY_CODE is always present
 
-    if not all(column in df.columns for column in required_columns_establishment):
-        st.error('Uploaded file is missing one or more required columns for establishments.')
-        return None  # Return None to indicate missing columns
+        required_columns_with_country_code = required_columns_establishment + ['COUNTRY_CODE']
+        missing_columns = [col for col in required_columns_with_country_code if col not in df.columns]
+        if missing_columns:
+            st.error(f"Establishment file is missing required columns: {', '.join(missing_columns)}")
+            return None
 
-    df = df[required_columns_establishment]
-    return df
+        return df
+    except Exception as e:
+        st.error(f"An error occurred while processing the file: {e}")
+        return None
+
+def process_country_code_file(uploaded_file):
+    try:
+        df = pd.read_csv(uploaded_file)
+        # Validate required country columns
+        if not all(column in df.columns for column in required_columns_country):
+            st.error('Country code file is missing one or more required columns.')
+            return None
+
+        return df
+    except Exception as e:
+        st.error(f"An error occurred while processing the country code file: {e}")
+        return None
 
 def filter_dataframe_establishments(df, firm_name, country, operations, registrant_name):
     if firm_name != "All":
@@ -2387,21 +2426,26 @@ def display_main_application_content():
             # File uploader for the Establishment and Country Codes file
             establishment_file = st.file_uploader("Choose an Establishment CSV file", type="csv", key="establishment")
             country_codes_file = st.file_uploader("Choose a Country Codes CSV file", type="csv", key="country_codes")
-
+            
             if establishment_file and country_codes_file:
-                with st.spinner('Processing data... Please wait.'):
-                    df = process_uploaded_file(establishment_file)
-                    if df is None:
-                        st.stop()
+                df = process_uploaded_file(establishment_file)
+                if df is None:
+                    st.error("Processing of establishment file failed.")
+                    st.stop()
 
-                    country_codes_df = pd.read_csv(country_codes_file)
-                    if not all(column in country_codes_df.columns for column in required_columns_country):
-                        st.error('Uploaded file is missing one or more required columns for country codes.')
-                        st.stop()
+                country_codes_df = process_country_code_file(country_codes_file)
+                if country_codes_df is None:
+                    st.error("Processing of country codes file failed.")
+                    st.stop()
 
-                    merged_df = df.merge(country_codes_df, left_on='COUNTRY_CODE', right_on='Alpha-3 code', how='left')
-                    merged_df.fillna('Unknown', inplace=True)
-                    st.session_state['merged_data'] = merged_df
+                # Check if 'COUNTRY_CODE' is available before merge
+                if 'COUNTRY_CODE' not in df.columns:
+                    st.error("Failed to ensure 'COUNTRY_CODE' in DataFrame.")
+                    st.stop()
+
+                merged_df = df.merge(country_codes_df, left_on='COUNTRY_CODE', right_on='Alpha-3 code', how='left')
+                merged_df.fillna('Unknown', inplace=True)
+                st.session_state['merged_data'] = merged_df
 
             if 'merged_data' in st.session_state:
                 firm_name_options = ["All"] + sorted(st.session_state['merged_data']['FIRM_NAME'].dropna().unique().tolist())
